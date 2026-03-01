@@ -17,10 +17,15 @@ months_ru = {
 }
 month_name = months_ru[month]
 
-# Названия файлов
+# Пути к папкам
+desktop_reports = '/Users/mihailpopov/Desktop/Отчёты'
 template_file = 'шаблон.xlsx'
-output_file = f'{month_name}.xlsx'
-shift_log_file = 'shift_log.json'  # Файл для сохранения состояния смен
+output_file = os.path.join(desktop_reports, f'{month_name}.xlsx')
+shift_log_file = os.path.join(desktop_reports, 'shift_log.json')
+
+# Создание папки если её нет
+if not os.path.exists(desktop_reports):
+    os.makedirs(desktop_reports)
 
 # Загрузка последнего состояния смен
 if os.path.exists(shift_log_file):
