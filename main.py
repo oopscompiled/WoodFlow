@@ -1,89 +1,44 @@
-import openpyxl
-from datetime import datetime, timedelta
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-import json
+"""CLI entrypoint for WoodFlow.
+
+This file now delegates logic to the `woodflow` package.
+"""
+from woodflow import calendar as cal
+from woodflow import storage
+from woodflow import workbook
 import os
+from datetime import datetime
 
-# Получение текущей даты
-today = datetime.now()
-year = today.year
-month = today.month
 
-# Получение названия месяца на русском
-months_ru = {
-    1: "Январь", 2: "Февраль", 3: "Март", 4: "Апрель",
-    5: "Май", 6: "Июнь", 7: "Июль", 8: "Август",
-    9: "Сентябрь", 10: "Октябрь", 11: "Ноябрь", 12: "Декабрь"
-}
-month_name = months_ru[month]
+def main(year: int | None = None, month: int | None = None, template_file: str | None = None, out_dir: str | None = None):
+    year = year or datetime.now().year
+    month = month or datetime.now().month
+    out_dir = out_dir or os.path.expanduser('~/Desktop/Отчёты')
+    os.makedirs(out_dir, exist_ok=True)
 
-# Пути к папкам
-desktop_reports = '/Users/mihailpopov/Desktop/Отчёты'
-template_file = 'шаблон.xlsx'
-output_file = os.path.join(desktop_reports, f'{month_name}.xlsx')
-shift_log_file = os.path.join(desktop_reports, 'shift_log.json')
+    # load last state
+    shift_file = os.path.join(out_dir, 'shift_log.json')
+    state = storage.load_shift_state(shift_file)
+    start_shift = state.get('shift_counter', 0)
 
-# Создание папки если её нет
-if not os.path.exists(desktop_reports):
-    os.makedirs(desktop_reports)
+    dates, end_shift = cal.generate_working_dates(year, month, start_shift)
 
-# Загрузка последнего состояния смен
-if os.path.exists(shift_log_file):
-    with open(shift_log_file, 'r') as f:
-        shift_data = json.load(f)
-    shift_counter = shift_data['shift_counter']
-    last_month = shift_data['month']
-    
-    # Если месяц изменился, продолжаем цикл
-    if last_month != month:
-        shift_counter = (shift_counter + 1) % 4
-else:
-    shift_counter = 0
+    if not dates:
+        print('No working days to create for this month.')
+        storage.save_shift_state(shift_file, end_shift, month)
+        return
 
-# Загрузка шаблона
-wb = openpyxl.load_workbook(template_file)
-template_ws = wb.active
+    template_file = template_file or 'шаблон.xlsx'
+    output_path = os.path.join(out_dir, f"{cal.russian_month_name(month)}.xlsx")
 
-# Получение количества дней в месяце
-if month == 12:
-    last_day = (datetime(year + 1, 1, 1) - timedelta(days=1)).day
-else:
-    last_day = (datetime(year, month + 1, 1) - timedelta(days=1)).day
+    wb = workbook.create_report_from_template(template_file, dates)
+    wb.save(output_path)
 
-# Генерация листов для каждой смены (2/2)
-current_date = datetime(year, month, 1)
-sheet_count = 0
-first_sheet = True
+    storage.save_shift_state(shift_file, end_shift, month)
 
-while current_date.month == month:
-    if shift_counter < 2:  # Рабочие дни
-        date_str = current_date.strftime("%d.%m.%Y")
-        
-        # Переименование первого листа или копирование шаблона
-        if first_sheet:
-            new_ws = template_ws
-            new_ws.title = date_str
-            first_sheet = False
-        else:
-            new_ws = wb.copy_worksheet(template_ws)
-            new_ws.title = date_str
-        
-        # Редактирование шаблона под дату
-        new_ws['G3'] = f"Отчёт: {date_str}"
-        
-        sheet_count += 1
-        current_date += timedelta(days=1)
-    else:  # Выходные дни
-        current_date += timedelta(days=1)
-    
-    shift_counter = (shift_counter + 1) % 4  # Цикл 0,1,2,3
+    print(f"Файл создан: {output_path}")
+    print(f"Листов с датами: {len(dates)}")
+    print(f"Следующая смена начнётся со статуса: {end_shift}")
 
-# Сохранение текущего состояния смен
-with open(shift_log_file, 'w') as f:
-    json.dump({'shift_counter': shift_counter, 'month': month}, f)
 
-# Сохранение файла
-wb.save(output_file)
-print(f"Файл создан: {output_file}")
-print(f"Листов с датами: {sheet_count}")
-print(f"Следующая смена начнётся со статуса: {shift_counter}")
+if __name__ == '__main__':
+    main()
